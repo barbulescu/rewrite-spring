@@ -55,18 +55,12 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
     @Nullable
     String fileExtension;
 
-    @Override
-    public String getDisplayName() {
-        return "Convert Spring `application-*.properties` to `application-*.yaml`";
-    }
+    String displayName = "Convert Spring `application-*.properties` to `application-*.yaml`";
 
-    @Override
-    public String getDescription() {
-        return "Converts Spring Boot `application-*.properties` files to `application-*.yaml`. " +
-                "The original `.properties` file is deleted and its comments are carried over. " +
-                "Conversion is skipped (with a message) " +
-                "when a corresponding `.yml` or `.yaml` file already exists.";
-    }
+    String description = "Converts Spring Boot `application-*.properties` files to `application-*.yaml`. " +
+            "The original `.properties` file is deleted and its comments are carried over. " +
+            "Conversion is skipped (with a message) " +
+            "when a corresponding `.yml` or `.yaml` file already exists.";
 
     @Value
     static class PendingConversion {
