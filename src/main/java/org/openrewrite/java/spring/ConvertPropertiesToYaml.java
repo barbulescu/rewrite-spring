@@ -26,6 +26,7 @@ import org.openrewrite.java.tree.JavaSourceFile;
 import org.openrewrite.marker.Markers;
 import org.openrewrite.marker.SearchResult;
 import org.openrewrite.properties.tree.Properties;
+import org.openrewrite.tree.ParseError;
 import org.openrewrite.yaml.YamlParser;
 
 import java.nio.file.Path;
@@ -42,8 +43,9 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
 
     private static final Pattern PROPERTIES_NAME_PATTERN = Pattern.compile("application(-.+)?\\.properties");
     private static final Pattern YAML_NAME_PATTERN = Pattern.compile("application(-.+)?\\.(yml|yaml)");
-    // Matches candidate file names inside larger strings such as "classpath:application-dev.properties"
-    private static final Pattern REFERENCED_FILE_NAME_PATTERN = Pattern.compile("application(-[^/\\\\:\\s]+)?\\.properties");
+    // Matches candidate file names inside larger strings such as "classpath:application-dev.properties",
+    // but not where they are only the tail of a longer name such as "custom-application.properties"
+    private static final Pattern REFERENCED_FILE_NAME_PATTERN = Pattern.compile("(?<![^/\\\\:\\s])application(-[^/\\\\:\\s]+)?\\.properties");
 
     @Option(displayName = "File extension",
             description = "The extension to use for the generated YAML files. Defaults to `yaml`.",
@@ -77,8 +79,8 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
         // parent directory -> file name stem (e.g. "application-dev") -> existing .yml/.yaml file
         final Map<Path, Map<String, Path>> existingYaml = new HashMap<>();
         final Map<@Nullable JavaProject, Set<String>> fileNamesReferencedFromJava = new HashMap<>();
-        // Paths whose conversion succeeded (YAML generated, or the file had no content
-        // to carry over); only these may be deleted
+        final Set<Path> multiDocument = new HashSet<>();
+        // Only these may be deleted
         final Set<Path> converted = new HashSet<>();
     }
 
@@ -117,10 +119,26 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
         if (source instanceof Properties.File &&
                 PROPERTIES_NAME_PATTERN.matcher(fileName(source)).matches() &&
                 new IsPossibleSpringConfigFile().visit(source, ctx) != source) {
+            Properties.File propertiesFile = (Properties.File) source;
+            if (isMultiDocument(propertiesFile)) {
+                acc.multiDocument.add(source.getSourcePath());
+            }
             acc.toConvert.put(source.getSourcePath(), new PendingConversion(
-                    PropertiesToYamlConverter.convert((Properties.File) source),
+                    PropertiesToYamlConverter.convert(propertiesFile),
                     source.getMarkers()));
         }
+    }
+
+    /**
+     * Spring splits a `.properties` file into several documents on a `#---` or `!---` line.
+     */
+    private static boolean isMultiDocument(Properties.File file) {
+        for (Properties.Content content : file.getContent()) {
+            if (content instanceof Properties.Comment && "---".equals(((Properties.Comment) content).getMessage())) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void collectJavaReferences(Accumulator acc, SourceFile source) {
@@ -165,6 +183,7 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
             YamlParser.builder().build()
                     .parse(pending.getYamlContent())
                     .findFirst()
+                    .filter(parsed -> !(parsed instanceof ParseError))
                     .map(brandNew -> (SourceFile) brandNew
                             .withSourcePath(toYamlPath(propertiesPath))
                             .withMarkers(pending.getMarkers()))
@@ -192,7 +211,6 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
 
                 String skipReason = skipReason(acc, sourcePath);
                 if (skipReason != null) {
-                    // Attach a visible skip message instead of deleting
                     return SearchResult.found(propertiesFile, skipReason);
                 }
                 return acc.converted.contains(sourcePath) ? null : tree;
@@ -201,6 +219,11 @@ public class ConvertPropertiesToYaml extends ScanningRecipe<ConvertPropertiesToY
     }
 
     private @Nullable String skipReason(Accumulator acc, Path propertiesPath) {
+        if (acc.multiDocument.contains(propertiesPath)) {
+            return "Skipped: this file is split into several documents by a `#---` separator, " +
+                    "which cannot be represented as a single YAML document. Split it into " +
+                    "profile specific files before converting.";
+        }
         String fileName = propertiesPath.getFileName().toString();
         JavaProject javaProject = acc.toConvert.get(propertiesPath).getMarkers().findFirst(JavaProject.class).orElse(null);
         if (referencedFromJava(acc, null, fileName) || (javaProject != null && referencedFromJava(acc, javaProject, fileName))) {

@@ -375,6 +375,68 @@ class ConvertPropertiesToYamlTest implements RewriteTest {
     }
 
     @Test
+    void javaReferenceToLongerFileNameDoesNotBlockConversion() {
+        rewriteRun(
+          mavenProject("project",
+            srcMainJava(
+              //language=java
+              java(
+                """
+                  class Config {
+                      String location = "classpath:custom-application.properties";
+                  }
+                  """
+              )
+            ),
+            srcMainResources(
+              properties(
+                "server.port=8080",
+                null,
+                spec -> spec.path("application.properties")
+              ),
+              yaml(
+                doesNotExist(),
+                //language=yaml
+                """
+                  server:
+                    port: 8080
+                  """,
+                spec -> spec.path("application.yaml")
+              )
+            )
+          )
+        );
+    }
+
+    @Test
+    void skipWithMessageWhenSplitIntoMultipleDocuments() {
+        rewriteRun(
+          mavenProject("project",
+            srcMainResources(
+              properties(
+                """
+                  server.port=8080
+                  #---
+                  spring.config.activate.on-profile=dev
+                  server.port=8081
+                  """,
+                "~~(Skipped: this file is split into several documents by a `#---` separator, " +
+                  "which cannot be represented as a single YAML document. Split it into " +
+                  "profile specific files before converting.)~~>" +
+                  """
+                    server.port=8080
+                    #---
+                    spring.config.activate.on-profile=dev
+                    server.port=8081
+                    """,
+                spec -> spec.path("application.properties")
+              )
+            )
+          )
+        );
+    }
+
+    @Test
     void nonApplicationPropertiesFilesAreUntouched() {
         rewriteRun(
           mavenProject("project",
@@ -473,9 +535,6 @@ class ConvertPropertiesToYamlTest implements RewriteTest {
 
     @Test
     void javaReferenceInOneModuleDoesNotBlockSameNamedFileInUnrelatedModule() {
-        // fileNamesReferencedFromJava is scoped per-module (by JavaProject marker), so a
-        // reference in one module must not block conversion of a same-named file in an
-        // unrelated module.
         rewriteRun(
           mavenProject("parent",
             mavenProject("service",

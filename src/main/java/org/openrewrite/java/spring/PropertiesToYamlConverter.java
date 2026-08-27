@@ -62,10 +62,6 @@ final class PropertiesToYamlConverter {
         List<String> comments;
     }
 
-    /**
-     * A node in the YAML tree built from the entries: a {@link Scalar} value,
-     * a {@link Mapping} of keys to child nodes, or a {@link Sequence} of items.
-     */
     private interface Node {
     }
 
@@ -150,9 +146,6 @@ final class PropertiesToYamlConverter {
         return root;
     }
 
-    /**
-     * A sequence item is either a scalar (single entry with an empty key) or a nested mapping.
-     */
     private static Sequence buildSequence(NavigableMap<Integer, List<KeyValue>> items) {
         List<Node> sequence = new ArrayList<>();
         for (List<KeyValue> item : items.values()) {
@@ -190,12 +183,12 @@ final class PropertiesToYamlConverter {
             if (node instanceof Scalar) {
                 Scalar scalar = (Scalar) node;
                 addComments(lines, indent, scalar.getComments());
-                lines.add(indent + key + ": " + quoteYamlValue(scalar.getValue()));
+                lines.add(indent + quoteYamlScalar(key) + ": " + quoteYamlScalar(scalar.getValue()));
             } else if (node instanceof Mapping) {
-                lines.add(indent + key + ":");
+                lines.add(indent + quoteYamlScalar(key) + ":");
                 lines.addAll(renderMapping((Mapping) node, depth + 1));
             } else {
-                lines.add(indent + key + ":");
+                lines.add(indent + quoteYamlScalar(key) + ":");
                 lines.addAll(renderSequence((Sequence) node, depth + 1));
             }
         });
@@ -209,10 +202,9 @@ final class PropertiesToYamlConverter {
             if (item instanceof Scalar) {
                 Scalar scalar = (Scalar) item;
                 addComments(lines, indent, scalar.getComments());
-                lines.add(indent + "- " + quoteYamlValue(scalar.getValue()));
+                lines.add(indent + "- " + quoteYamlScalar(scalar.getValue()));
             } else {
-                // Hang the mapping's first line off the dash, hoisting any comments above it,
-                // and align the remaining lines with the first
+                // Hoist any comments above the dash, then hang the mapping's first line off it
                 List<String> itemLines = renderMapping((Mapping) item, 0);
                 int first = 0;
                 while (itemLines.get(first).startsWith("#")) {
@@ -279,9 +271,6 @@ final class PropertiesToYamlConverter {
         return sequences;
     }
 
-    /**
-     * A sequence item must be either exactly one scalar (empty item key) or one or more object keys.
-     */
     private static boolean isInvalidSequenceItem(List<KeyValue> item) {
         boolean scalar = item.get(0).getKey().isEmpty();
         if (scalar) {
@@ -291,10 +280,11 @@ final class PropertiesToYamlConverter {
     }
 
     /**
-     * Quotes a scalar when leaving it plain would change its meaning: YAML special or control
-     * characters, leading/trailing whitespace, block indicators, or re-typed values.
+     * Quotes a key or value when leaving it plain would change its meaning: YAML special or control
+     * characters, leading/trailing whitespace, block indicators, or re-typed values. Keys need the
+     * same treatment as values, as Spring turns a re-typed key such as {@code no} into {@code false}.
      */
-    private static String quoteYamlValue(String value) {
+    private static String quoteYamlScalar(String value) {
         if (value.isEmpty()) {
             return "\"\"";
         }

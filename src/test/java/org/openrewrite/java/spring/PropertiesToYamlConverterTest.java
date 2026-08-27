@@ -208,7 +208,22 @@ class PropertiesToYamlConverterTest {
           .isEqualTo(
             """
               my key: 1
-              a:b: 2
+              "a:b": 2
+              """);
+    }
+
+    @Test
+    void keysReTypedByYamlAreQuoted() {
+        assertThat(convert(
+          """
+            messages.no=Nei
+            messages.en=Hello
+            """))
+          .isEqualTo(
+            """
+              messages:
+                "no": Nei
+                en: Hello
               """);
     }
 
@@ -315,8 +330,8 @@ class PropertiesToYamlConverterTest {
           .isEqualTo(
             """
               my:
-                list[0]: a
-                list[2]: c
+                "list[0]": a
+                "list[2]": c
               """);
     }
 
@@ -369,9 +384,9 @@ class PropertiesToYamlConverterTest {
           .isEqualTo(
             """
               my:
-                servers[0]:
+                "servers[0]":
                   host: alpha
-                servers[2]:
+                "servers[2]":
                   host: gamma
               """);
     }
